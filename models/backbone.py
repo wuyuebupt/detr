@@ -71,9 +71,12 @@ class BackboneBase(nn.Module):
     def forward(self, tensor_list):
         xs = self.body(tensor_list.tensors)
         out = OrderedDict()
+        # print ("backbone part")
         for name, x in xs.items():
             mask = F.interpolate(tensor_list.mask[None].float(), size=x.shape[-2:]).bool()[0]
             out[name] = NestedTensor(x, mask)
+            # print ("backbone feature shape: ", x.size())
+            # print ("mask:", mask.size())
         return out
 
 
@@ -102,6 +105,7 @@ class Joiner(nn.Sequential):
             out.append(x)
             # position encoding
             pos.append(self[1](x).to(x.tensors.dtype))
+            # exit()
 
         return out, pos
 

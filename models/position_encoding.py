@@ -26,9 +26,16 @@ class PositionEmbeddingSine(nn.Module):
     def forward(self, tensor_list):
         x = tensor_list.tensors
         mask = tensor_list.mask
+        # print (x.shape)
         not_mask = ~mask
+        # print (not_mask.shape)
         y_embed = not_mask.cumsum(1, dtype=torch.float32)
         x_embed = not_mask.cumsum(2, dtype=torch.float32)
+
+        ## position embedding 
+        # print (x_embed.shape)
+        # print (y_embed.shape)
+        # exit()
         if self.normalize:
             eps = 1e-6
             y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
@@ -36,6 +43,9 @@ class PositionEmbeddingSine(nn.Module):
 
         dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=x.device)
         dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
+
+        # print (self.num_pos_feats)
+        # exit()
 
         pos_x = x_embed[:, :, :, None] / dim_t
         pos_y = y_embed[:, :, :, None] / dim_t

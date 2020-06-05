@@ -57,14 +57,44 @@ class DETR(nn.Module):
         """
         if not isinstance(samples, NestedTensor):
             samples = NestedTensor.from_tensor_list(samples)
+
+        # print ("input image: ", samples.tensors.size())
+        # print ("input mask: ", samples.mask.size())
         features, pos = self.backbone(samples)
+        # print ("backbone feature output: ", features[0].tensors.size())
+        # print ("interpolate mask according to feature output: ", features[0].mask.size())
+        # print ("position embedding: ", pos[0].size())
+        
 
         src, mask = features[-1].decompose()
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        # print (src.size())
+        # print (mask.size())
 
-        outputs_class = self.class_embed(hs)
-        outputs_coord = self.bbox_embed(hs).sigmoid()
+        # hs, memory = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
+        hs_class, hs_box, memory = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
+        # hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        # print (hs) 
+        # print (hs.size())
+        # print (hs.size())
+        # print (hs_class.size())
+        # print (hs_box.size())
+        # print ("encoder output, memory:", memory.size())
+
+
+        # outputs_class = self.class_embed(hs)
+        # outputs_coord = self.bbox_embed(hs).sigmoid()
+        outputs_class = self.class_embed(hs_class)
+        outputs_coord = self.bbox_embed(hs_box).sigmoid()
+        # print (outputs_class.size())
+        # print (outputs_coord.size())
+ 
+
+        ## last stage for decoder
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+        # print (out['pred_logits'].size())
+        # print (out['pred_boxes'].size())
+
+        # exit()
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b}
                                   for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]

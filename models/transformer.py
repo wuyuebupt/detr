@@ -20,7 +20,7 @@ class Transformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False):
+                 return_intermediate_dec=False, use_double_decoder=False):
         super().__init__()
 
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
@@ -31,9 +31,15 @@ class Transformer(nn.Module):
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         decoder_norm = nn.LayerNorm(d_model)
-        self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
-                                          return_intermediate=return_intermediate_dec)
-
+        self.use_double_decoder = use_double_decoder
+        if self.use_double_decoder:
+            self.decoder_class = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
+                                              return_intermediate=return_intermediate_dec)
+            self.decoder_box = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
+                                              return_intermediate=return_intermediate_dec)
+        else:
+            self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
+                                               return_intermediate=return_intermediate_dec)
         self._reset_parameters()
 
         self.d_model = d_model
@@ -46,17 +52,40 @@ class Transformer(nn.Module):
 
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
+        # print ("entering transformer:", src.shape)
         bs, c, h, w = src.shape
+        # print (bs)
+        # print (src.shape)
         src = src.flatten(2).permute(2, 0, 1)
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        # print ("pos_embed:", pos_embed.size())
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
+        # print ("query_embed:", query_embed.size())
         mask = mask.flatten(1)
+        # print (mask.shape)
 
+        # print (query_embed)
         tgt = torch.zeros_like(query_embed)
+        # print (tgt)
+        # print (src.shape)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
-        hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
-                          pos=pos_embed, query_pos=query_embed)
-        return hs.transpose(1, 2), memory.permute(1, 2, 0).view(bs, c, h, w)
+        # print ("output of encoder, memory: ", memory.shape)
+        # hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
+        #                   pos=pos_embed, query_pos=query_embed)
+        # print ("output of decoder, hs: ", hs.shape)
+        if self.use_double_decoder:
+            hs_class = self.decoder_class(tgt, memory, memory_key_padding_mask=mask,
+                              pos=pos_embed, query_pos=query_embed)
+            hs_box = self.decoder_box(tgt, memory, memory_key_padding_mask=mask,
+                              pos=pos_embed, query_pos=query_embed)
+        else:
+            hs_class = hs_box = self.decoder(tgt, memory, memory_key_padding_mask=mask,
+                              pos=pos_embed, query_pos=query_embed)
+        # print (hs_class.shape)
+        # print (hs_box.shape)
+        # exit()
+        # return hs.transpose(1, 2), memory.permute(1, 2, 0).view(bs, c, h, w)
+        return hs_class.transpose(1, 2), hs_box.transpose(1,2), memory.permute(1, 2, 0).view(bs, c, h, w)
 
 
 class TransformerEncoder(nn.Module):
@@ -99,7 +128,9 @@ class TransformerDecoder(nn.Module):
                 memory_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
+        # print ("entering decoder")
         output = tgt
+        # print ("output shape (tgt):", output.shape)
 
         intermediate = []
 
@@ -109,6 +140,7 @@ class TransformerDecoder(nn.Module):
                            tgt_key_padding_mask=tgt_key_padding_mask,
                            memory_key_padding_mask=memory_key_padding_mask,
                            pos=pos, query_pos=query_pos)
+            # print ("output shape ", output.shape)
             if self.return_intermediate:
                 intermediate.append(self.norm(output))
 
@@ -216,15 +248,23 @@ class TransformerDecoderLayer(nn.Module):
                      memory_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
+        # print ("entering decoder_layer post")
         q = k = self.with_pos_embed(tgt, query_pos)
+        # print ("self-attention q:", q.shape)
+        # print ("self-attention k:", k.shape)
+        # print ("self-attention v:", tgt.shape)
         tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
+        # print ("cross-attention q:", self.with_pos_embed(tgt, query_pos).shape)
+        # print ("cross-attention k:", self.with_pos_embed(memory, pos).shape)
+        # print ("cross-attention v:", memory.shape)
         tgt2 = self.multihead_attn(query=self.with_pos_embed(tgt, query_pos),
                                    key=self.with_pos_embed(memory, pos),
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)[0]
+        # print ("tgt2", tgt2.shape)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
@@ -239,6 +279,7 @@ class TransformerDecoderLayer(nn.Module):
                     memory_key_padding_mask: Optional[Tensor] = None,
                     pos: Optional[Tensor] = None,
                     query_pos: Optional[Tensor] = None):
+        # print ("entering decoder_layer pre")
         tgt2 = self.norm1(tgt)
         q = k = self.with_pos_embed(tgt2, query_pos)
         tgt2 = self.self_attn(q, k, value=tgt2, attn_mask=tgt_mask,
@@ -283,6 +324,7 @@ def build_transformer(args):
         num_decoder_layers=args.dec_layers,
         normalize_before=args.pre_norm,
         return_intermediate_dec=True,
+        use_double_decoder=args.use_double_decoder,
     )
 
 

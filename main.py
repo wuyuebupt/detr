@@ -55,6 +55,7 @@ def get_args_parser():
     parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
+    parser.add_argument('--use_double_decoder', action='store_true')
 
     # * Segmentation
     parser.add_argument('--masks', action='store_true',
